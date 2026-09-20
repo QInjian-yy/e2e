@@ -1,0 +1,5 @@
+augmentation:
+  enabled: false
+  horizontal_flip: 0.5
+  vertical_flip: 0.5
+  rotation90: true
