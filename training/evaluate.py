@@ -42,7 +42,12 @@ def main(argv=None, expected_model=None):
                    else args.cls_micro_batch)
     if micro_batch < 1 or args.num_workers < 0:
         parser.error("cls-micro-batch must be positive and num-workers nonnegative")
-    model = build_from_spec(model_name, args.sr_root, saved["model_spec"], device)
+    downstream_spec = saved.get("downstream_spec")
+    if downstream_spec is None:
+        model = build_from_spec(model_name, args.sr_root, saved["model_spec"], device)
+    else:
+        model = build_from_spec(model_name, args.sr_root, saved["model_spec"], device,
+                                downstream_spec)
     model.load_state_dict(saved["model_state"], strict=True)
     fold, epoch = saved["fold"], saved["epoch"]
     del saved

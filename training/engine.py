@@ -256,6 +256,32 @@ def classification_loss_and_backward(model, sample, cls_micro_batch, device, tar
     return cls_value, labels[0], probabilities[0], predictions[0]
 
 
+def full_graph_classification_loss_and_backward(
+        model, sample, cls_micro_batch, device, target, verbose, gradient_diagnostics=None):
+    """Retain encoder graphs; communicate once after collecting the whole WSI."""
+    n = sample["n_regions"]
+    chunks = []
+    for start in range(0, n, cls_micro_batch):
+        end = min(start + cls_micro_batch, n)
+        lr = load_images(sample["lr_paths"][start:end], 256).to(device)
+        chunks.append(model.encode_regions(lr, log_shapes=verbose).float())
+        del lr
+    bag = torch.cat(chunks, dim=0)
+    del chunks
+    with autocast(device):
+        logits = model.forward_embeddings(bag)
+        loss_cls = F.cross_entropy(logits, target)
+    cls_value = check_loss(loss_cls, "classification loss")
+    labels, probabilities, predictions = wsi_predictions(logits, target)
+    loss_cls.backward()
+    if gradient_diagnostics is not None:
+        gradient_diagnostics.update(mode="full_graph")
+    if verbose:
+        print("WSI classification: full graph over N={}; model={}; "
+              "HAT HAB/OCAB checkpoint=on".format(n, model.model_name), flush=True)
+    return cls_value, labels[0], probabilities[0], predictions[0]
+
+
 def train_wsi(model, sample, optimizer, device, cls_micro_batch=1,
               sr_micro_batch=1, lambda_sr=1.0, verbose=False,
               gradient_log_context=None):
@@ -304,7 +330,10 @@ def train_wsi(model, sample, optimizer, device, cls_micro_batch=1,
     try:
         gradient_diagnostics = {} if gradient_log_context is not None else None
         target = torch.tensor([sample["label"]], dtype=torch.long, device=device)
-        cls_value, label, probability, prediction = classification_loss_and_backward(
+        classify = (classification_loss_and_backward
+                    if getattr(model, "classification_gradpool", True)
+                    else full_graph_classification_loss_and_backward)
+        cls_value, label, probability, prediction = classify(
             model, sample, cls_micro_batch, device, target, verbose,
             gradient_diagnostics)
         meter.record("classification forward/backward")

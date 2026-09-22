@@ -1,9 +1,11 @@
-"""Registry for the Mean-ResNet downstream model."""
+"""Registry for the independent Mean-ResNet and ResNet-WiKG-ABMIL models."""
 
 from downstream.mean_resnet.model import MeanResNet
+from downstream.resnet_wikg_abmil.model import ResNetWiKGABMIL
 from downstream.shared_model import build_model, build_scratch_model as _build_scratch_model
 
-_MODEL_CLASSES = {MeanResNet.model_name: MeanResNet}
+_MODEL_CLASSES = {MeanResNet.model_name: MeanResNet,
+                  ResNetWiKGABMIL.model_name: ResNetWiKGABMIL}
 _LEGACY_POOLING_TO_MODEL = {MeanResNet.pooling_name: MeanResNet.model_name}
 
 
@@ -30,9 +32,17 @@ def checkpoint_model_name(saved):
         raise ValueError("Checkpoint has no recognized downstream model identity") from exc
 
 
-def build_from_spec(model_name, sr_root, model_spec, device):
-    return build_model(get_model_class(model_name), sr_root, model_spec, device)
+def build_from_spec(model_name, sr_root, model_spec, device, downstream_spec=None):
+    model_class = get_model_class(model_name)
+    if downstream_spec is None:
+        return build_model(model_class, sr_root, model_spec, device)
+    return build_model(model_class, sr_root, model_spec, device,
+                       downstream_args=downstream_spec["args"])
 
 
-def build_scratch_model(model_name, sr_root, model_spec, device):
-    return _build_scratch_model(get_model_class(model_name), sr_root, model_spec, device)
+def build_scratch_model(model_name, sr_root, model_spec, device, downstream_spec=None):
+    model_class = get_model_class(model_name)
+    if downstream_spec is None:
+        return _build_scratch_model(model_class, sr_root, model_spec, device)
+    return _build_scratch_model(model_class, sr_root, model_spec, device,
+                                downstream_args=downstream_spec["args"])

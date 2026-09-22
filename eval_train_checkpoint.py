@@ -70,7 +70,12 @@ def evaluate_fold(run_dir, fold, gpu_override=None):
     gpu = int(config.get("gpu", 0) if gpu_override is None else gpu_override)
     device = cuda_device(gpu)
     model_name = checkpoint_model_name(saved)
-    model = build_from_spec(model_name, sr_root, saved["model_spec"], device)
+    downstream_spec = saved.get("downstream_spec")
+    if downstream_spec is None:
+        model = build_from_spec(model_name, sr_root, saved["model_spec"], device)
+    else:
+        model = build_from_spec(model_name, sr_root, saved["model_spec"], device,
+                                downstream_spec)
     model.load_state_dict(saved["model_state"], strict=True)
     model.eval()
 

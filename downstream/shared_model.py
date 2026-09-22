@@ -193,7 +193,7 @@ def _source_models(sr_root):
     return models
 
 
-def build_model(model_class, sr_root, spec, device):
+def build_model(model_class, sr_root, spec, device, downstream_args=None):
     device = torch.device(device)
     if device.type != "cuda":
         raise RuntimeError("The original Gaussian constructor and gsplat require CUDA")
@@ -203,19 +203,24 @@ def build_model(model_class, sr_root, spec, device):
     models = _source_models(sr_root)
     sr = models.make(spec, load_sd=False)
     architecture = {"name": spec["name"], "args": copy.deepcopy(spec["args"])}
-    model = model_class(sr, architecture).to(device)
+    if downstream_args is None:
+        model = model_class(sr, architecture).to(device)
+    else:
+        model = model_class(sr, architecture, downstream_args=downstream_args).to(device)
     print(f"Downstream model: {model.model_name}", flush=True)
     print(f"HAT config: {architecture['args']['encoder_spec']['args']}", flush=True)
     print(f"HAT checkpoints: {model.checkpoint_counts}; every HAB / OCAB, non-reentrant", flush=True)
-    print("Classification memory: gradient caching replay; no outer HAT+ResNet18 checkpoint", flush=True)
+    memory = ("gradient caching replay" if getattr(model, "classification_gradpool", True)
+              else "full classification graph")
+    print(f"Classification memory: {memory}; no outer HAT+ResNet18 checkpoint", flush=True)
     print("Replay protection: per-micro-batch RNG restore + temporary ResNet18 BN buffers", flush=True)
     print(model.downstream_description, flush=True)
     print("Gaussian query runs separately per sample; Gaussian FP32, HAT/ResNet18 BF16 autocast", flush=True)
     return model
 
 
-def build_scratch_model(model_class, sr_root, model_spec, device):
+def build_scratch_model(model_class, sr_root, model_spec, device, downstream_args=None):
     """Build HAT, Gaussian, ResNet18 and downstream parameters from random initialization."""
-    model = build_model(model_class, sr_root, model_spec, device)
+    model = build_model(model_class, sr_root, model_spec, device, downstream_args)
     print("SR initialization: random weights from --sr-config (no SR checkpoint loaded)", flush=True)
     return model

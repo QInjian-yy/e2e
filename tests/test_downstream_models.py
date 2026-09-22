@@ -20,8 +20,8 @@ class DownstreamModelTests(unittest.TestCase):
     def setUp(self):
         torch.set_num_threads(1)
 
-    def test_registry_contains_only_mean_resnet(self):
-        self.assertEqual(available_models(), ("mean_resnet",))
+    def test_registry_contains_mean_and_wikg(self):
+        self.assertEqual(available_models(), ("mean_resnet", "resnet_wikg_abmil"))
         self.assertIs(get_model_class("mean_resnet"), MeanResNet)
         self.assertEqual(checkpoint_model_name({"pooling": "mean"}), "mean_resnet")
         self.assertEqual(checkpoint_model_name({"model_name": "mean_resnet"}), "mean_resnet")

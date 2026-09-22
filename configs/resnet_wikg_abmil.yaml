@@ -1,0 +1,8 @@
+# Uses the existing ResNet18, 512-dimensional tokens, bi-interaction and ABMIL.
+downstream:
+  name: resnet_wikg_abmil
+  args:
+    wikg_topk: 6
+    wikg_dropout: 0.3
+    classification_gradpool: true
+    debug_shapes: false

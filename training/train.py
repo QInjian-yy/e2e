@@ -1,4 +1,4 @@
-"""CAMELYON16 E2E trainer for the Mean-ResNet downstream model."""
+"""CAMELYON16 E2E trainer for the registered downstream models."""
 
 import argparse
 import copy
@@ -107,11 +107,33 @@ def load_sr_model_spec(path):
     return spec
 
 
+def load_downstream_spec(path):
+    """Read and validate an optional model-specific downstream configuration."""
+    with Path(path).open(encoding="utf-8") as handle:
+        config = yaml.safe_load(handle)
+    if not isinstance(config, dict) or not isinstance(config.get("downstream"), dict):
+        raise ValueError("--downstream-config must contain a top-level 'downstream' mapping")
+    downstream = config["downstream"]
+    if set(downstream) != {"name", "args"}:
+        raise ValueError("downstream config must contain exactly name and args")
+    name = downstream["name"]
+    model_class = get_model_class(name)
+    validator = getattr(model_class, "validate_downstream_args", None)
+    if validator is None:
+        if downstream["args"] not in ({}, None):
+            raise ValueError("{} does not accept downstream args".format(name))
+        args = {}
+    else:
+        args = validator(downstream["args"])
+    return {"name": name, "args": args}
+
+
 def serialized_config(args):
-    """Convert path arguments into checkpoint-safe strings."""
+    """Keep legacy checkpoint config keys unchanged when no downstream config is used."""
     return {
         key: str(value) if isinstance(value, Path) else value
         for key, value in vars(args).items()
+        if not (key in ("downstream_config", "downstream_spec") and value is None)
     }
 
 
@@ -150,6 +172,12 @@ def experiment_signature(args, provenance, split_directory, fold_ids, sr_config_
     augmentation = getattr(args, "augmentation", {})
     if augmentation.get("enabled", False):
         signature["augmentation"] = augmentation
+    downstream_spec = getattr(args, "downstream_spec", None)
+    if downstream_spec is not None:
+        signature["downstream_spec"] = copy.deepcopy(downstream_spec)
+        signature["classification_memory"] = (
+            "gradient_cache_v1" if downstream_spec["args"]["classification_gradpool"]
+            else "full_graph_v1")
     return signature
 
 
@@ -206,6 +234,9 @@ def save_checkpoint(path, model, optimizer, fold, epoch, metrics, args, provenan
         "rng": {"python": random.getstate(), "numpy": np.random.get_state(),
                 "torch": torch.get_rng_state(), "cuda": torch.cuda.get_rng_state()},
     }
+    downstream_spec = getattr(args, "downstream_spec", None)
+    if downstream_spec is not None:
+        saved["downstream_spec"] = copy.deepcopy(downstream_spec)
     temporary = path.with_suffix(path.suffix + ".tmp")
     torch.save(saved, temporary)
     temporary.replace(path)
@@ -251,6 +282,8 @@ def parse_args(argv=None, default_model=None):
     parser.add_argument("--sr-root", type=Path, required=True)
     parser.add_argument("--sr-config", type=Path,
                         help="Weight-free HAT+Gaussian YAML configuration; required unless --resume")
+    parser.add_argument("--downstream-config", type=Path,
+                        help="Model-specific YAML; required for a fresh resnet_wikg_abmil run")
     parser.add_argument("--augmentation-config", type=Path,
                         help="Optional paired CPU augmentation YAML; disabled by default")
     parser.add_argument("--gpu", type=int, default=0)
@@ -283,6 +316,21 @@ def parse_args(argv=None, default_model=None):
         args.augmentation = asdict(load_augmentation_config(args.augmentation_config))
     except (OSError, ValueError, TypeError, yaml.YAMLError) as exc:
         parser.error(str(exc))
+    args.downstream_spec = None
+    if args.downstream_config is not None:
+        if not args.downstream_config.is_file():
+            parser.error("--downstream-config does not exist")
+        try:
+            args.downstream_spec = load_downstream_spec(args.downstream_config)
+        except (OSError, ValueError, TypeError, yaml.YAMLError) as exc:
+            parser.error(str(exc))
+        if args.downstream_spec["name"] != args.model:
+            parser.error("--model must match downstream.name in --downstream-config")
+    if (args.model == "resnet_wikg_abmil"
+            and args.resume is None and args.downstream_spec is None):
+        parser.error("A fresh {} run requires --downstream-config".format(args.model))
+    if args.model != "resnet_wikg_abmil" and args.downstream_spec is not None:
+        parser.error("--downstream-config is only supported by resnet_wikg_abmil")
     if args.output_dir is None:
         args.output_dir = Path(__file__).resolve().parents[1] / "runs" / args.model
     if (args.epochs < 1 or args.early_stopping_patience < 1
@@ -345,6 +393,14 @@ def main(argv=None, default_model=None):
                 raise ValueError("Resume requires a complete checkpoint for this model and fold")
             if provenance_hashes(resumed["data_provenance"]) != provenance_hashes(provenance):
                 raise ValueError("Manifest/labels/fold CSV changed since the checkpoint")
+            saved_downstream_spec = resumed.get("downstream_spec")
+            if args.model == "resnet_wikg_abmil":
+                if saved_downstream_spec is None:
+                    raise ValueError("{} checkpoint has no downstream_spec".format(args.model))
+                if (args.downstream_spec is not None
+                        and args.downstream_spec != saved_downstream_spec):
+                    raise ValueError("--downstream-config differs from the {} checkpoint".format(args.model))
+                args.downstream_spec = copy.deepcopy(saved_downstream_spec)
             for key in ("model", "lambda_sr", "cls_micro_batch", "sr_micro_batch", "lr",
                         "weight_decay", "early_stopping_patience", "seed", "num_folds",
                         "best_metric"):
@@ -366,14 +422,22 @@ def main(argv=None, default_model=None):
                 history_rows = list(csv.DictReader(handle))
             validate_resume_state(resumed, best, history_rows, fold, args.epochs, provenance, experiment)
             del best, history_rows
-            model = build_from_spec(args.model, args.sr_root, resumed["model_spec"], device)
+            if args.downstream_spec is None:
+                model = build_from_spec(args.model, args.sr_root, resumed["model_spec"], device)
+            else:
+                model = build_from_spec(args.model, args.sr_root, resumed["model_spec"], device,
+                                        args.downstream_spec)
             model.load_state_dict(resumed["model_state"], strict=True)
         else:
             experiment = experiment_signature(args, provenance, train_data.split_csv.parent,
                                               cv_folds, sr_config_sha256)
             # Re-seed immediately before construction for reproducible initialization.
             seed_everything(args.seed + fold)
-            model = build_scratch_model(args.model, args.sr_root, sr_model_spec, device)
+            if args.downstream_spec is None:
+                model = build_scratch_model(args.model, args.sr_root, sr_model_spec, device)
+            else:
+                model = build_scratch_model(args.model, args.sr_root, sr_model_spec, device,
+                                            args.downstream_spec)
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr,
                                      weight_decay=args.weight_decay)
         start_epoch = 1
