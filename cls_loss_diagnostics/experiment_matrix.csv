@@ -1,0 +1,7 @@
+id,run_name,model_variant,visible_epochs,controlled_change,diagnostic_question,train_cls_start,train_cls_end,train_sr_start,train_sr_end,train_total_start,train_total_end,observation,evidence_limit
+1,runs_attention_8rhag_lam00_overfit16,attention_8rhag,20,16样本且lambda_sr=0,分类链路能否拟合小数据集,0.724243,0.499451,0.000000,0.000000,0.724243,0.499451,分类损失明显下降,仅有fold0截图且尚未证明完全过拟合
+2,runs_attention_8rhag_lam00_noWD_3fold,attention_8rhag,2,lambda_sr=0且无weight_decay,SR竞争或L2是否为主要原因,0.687298,0.688869,0.000000,0.000000,0.687298,0.688869,分类损失未立即改善,只有2个可见epoch
+3,runs_attention_8rhag_lam01_noWD_3fold,attention_8rhag,5,lambda_sr=0.1且无weight_decay,SR监督是否帮助分类,0.689206,0.685390,0.322148,0.113026,0.721421,0.696692,SR明显学习而分类仍接近0.69,只有5个可见epoch
+4,runs_attention_hats6_lam00_freezeHAT_lr3e4_noWD_3fold,attention_hats6,4,冻结HAT且lambda_sr=0且lr=3e-4且无weight_decay,HAT更新是否导致不稳定,0.786587,0.733208,0.000000,0.000000,0.786587,0.733208,损失下降但仍高且波动,只有4个可见epoch
+5,runs_attention_hats6_lam00_pretrain_lr3e4_noWD_3fold,attention_hats6,17,预训练HAT且lambda_sr=0且lr=3e-4且无weight_decay,预训练初始化能否解决停滞,0.786638,0.686164,0.000000,0.000000,0.786638,0.686164,损失回到约0.69但波动明显,仅有部分fold0截图
+6,runs_frequency_router_2rhag_3fold,frequency_router_2rhag,12,频率路由分类表征,停滞是否只属于baseline表征,0.685019,0.683098,0.290139,0.098630,0.975158,0.782538,SR明显改善而分类几乎不变,截图外运行参数未知
