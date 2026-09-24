@@ -38,5 +38,3 @@
 3. 每个 epoch 记录真实类别数、预测类别数和肿瘤概率分布，检查是否长期输出单一类别。
 4. 在 `optimizer.step` 前检查 HAT、ResNet、ABMIL 的 finite/nonzero 梯度范数。
 5. 用相同 split、seed、初始化、学习率和 epoch 数严格比较 `lambda_sr=0` 与 `lambda_sr=0.1`。
-
-原始手机照片没有上传，因为仓库是公开的，照片会暴露服务器和会话信息。结构化抄录见 [experiment_matrix.csv](experiment_matrix.csv)。
